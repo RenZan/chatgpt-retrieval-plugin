@@ -65,7 +65,7 @@ class PineconeDataStore(DataStore):
                 raise e
 
     @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(3))
-    async def _upsert(self, chunks: Dict[str, List[DocumentChunk]]) -> List[str]:
+    async def _upsert(self, chunks: Dict[str, List[DocumentChunk]], namespace: str) -> List[str]:
         """
         Takes in a dict from document id to list of document chunks and inserts them into the index.
         Return a list of document ids.
@@ -98,7 +98,7 @@ class PineconeDataStore(DataStore):
         for batch in batches:
             try:
                 print(f"Upserting batch of size {len(batch)}")
-                self.index.upsert(vectors=batch)
+                self.index.upsert(vectors=batch, namespace=namespace)
                 print(f"Upserted batch successfully")
             except Exception as e:
                 print(f"Error upserting batch: {e}")
@@ -107,17 +107,14 @@ class PineconeDataStore(DataStore):
         return doc_ids
 
     @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(3))
-    async def _query(
-        self,
-        queries: List[QueryWithEmbedding],
-    ) -> List[QueryResult]:
+    async def _query(self, queries: List[QueryWithEmbedding], namespace: str) -> List[QueryResult]:
         """
         Takes in a list of queries with embeddings and filters and returns a list of query results with matching document chunks and scores.
         """
+        print(f"Namespace: {namespace}")
 
         # Define a helper coroutine that performs a single query and returns a QueryResult
         async def _single_query(query: QueryWithEmbedding) -> QueryResult:
-            print(f"Query: {query.query}")
 
             # Convert the metadata filter object to a dict with pinecone filter expressions
             pinecone_filter = self._get_pinecone_filter(query.filter)
@@ -125,7 +122,7 @@ class PineconeDataStore(DataStore):
             try:
                 # Query the index with the query embedding, filter, and top_k
                 query_response = self.index.query(
-                    # namespace=namespace,
+                    namespace=namespace,
                     top_k=query.top_k,
                     vector=query.embedding,
                     filter=pinecone_filter,
@@ -169,15 +166,17 @@ class PineconeDataStore(DataStore):
             *[_single_query(query) for query in queries]
         )
 
+        for query_result in results:
+            if len(query_result.results) > 0:
+                print(f"La requête '{query_result.query}' a trouvé {len(query_result.results)} correspondance(s):")
+                for match in query_result.results:
+                    print(f"  - ID: {match.id}, Texte: {match.text}, Score: {match.score}")
+            else:
+                print(f"Aucune correspondance trouvée pour la requête '{query_result.query}'.")
         return results
 
     @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(3))
-    async def delete(
-        self,
-        ids: Optional[List[str]] = None,
-        filter: Optional[DocumentMetadataFilter] = None,
-        delete_all: Optional[bool] = None,
-    ) -> bool:
+    async def delete(self, namespace: str, ids: Optional[List[str]] = None, filter: Optional[DocumentMetadataFilter] = None, delete_all: Optional[bool] = None) -> bool:
         """
         Removes vectors by ids, filter, or everything from the index.
         """
@@ -185,35 +184,32 @@ class PineconeDataStore(DataStore):
         if delete_all:
             try:
                 print(f"Deleting all vectors from index")
-                self.index.delete(delete_all=True)
+                self.index.delete(delete_all=True, namespace=namespace)
                 print(f"Deleted all vectors successfully")
                 return True
             except Exception as e:
                 print(f"Error deleting all vectors: {e}")
                 raise e
 
-        # Convert the metadata filter object to a dict with pinecone filter expressions
-        pinecone_filter = self._get_pinecone_filter(filter)
-        # Delete vectors that match the filter from the index if the filter is not empty
         if pinecone_filter != {}:
             try:
                 print(f"Deleting vectors with filter {pinecone_filter}")
-                self.index.delete(filter=pinecone_filter)
+                self.index.delete(filter=pinecone_filter, namespace=namespace)
                 print(f"Deleted vectors with filter successfully")
             except Exception as e:
                 print(f"Error deleting vectors with filter: {e}")
                 raise e
 
-        # Delete vectors that match the document ids from the index if the ids list is not empty
         if ids is not None and len(ids) > 0:
             try:
                 print(f"Deleting vectors with ids {ids}")
                 pinecone_filter = {"document_id": {"$in": ids}}
-                self.index.delete(filter=pinecone_filter)  # type: ignore
+                self.index.delete(filter=pinecone_filter, namespace=namespace)
                 print(f"Deleted vectors with ids successfully")
             except Exception as e:
                 print(f"Error deleting vectors with ids: {e}")
                 raise e
+
 
         return True
 

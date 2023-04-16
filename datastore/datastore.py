@@ -16,33 +16,19 @@ from services.openai import get_embeddings
 
 class DataStore(ABC):
     async def upsert(
-        self, documents: List[Document], chunk_token_size: Optional[int] = None
+        self, documents: List[Document], namespace: str, chunk_token_size: Optional[int] = None
     ) -> List[str]:
         """
         Takes in a list of documents and inserts them into the database.
         First deletes all the existing vectors with the document id (if necessary, depends on the vector db), then inserts the new ones.
         Return a list of document ids.
         """
-        # Delete any existing vectors for documents with the input document ids
-        await asyncio.gather(
-            *[
-                self.delete(
-                    filter=DocumentMetadataFilter(
-                        document_id=document.id,
-                    ),
-                    delete_all=False,
-                )
-                for document in documents
-                if document.id
-            ]
-        )
-
         chunks = get_document_chunks(documents, chunk_token_size)
 
-        return await self._upsert(chunks)
+        return await self._upsert(chunks, namespace)
 
     @abstractmethod
-    async def _upsert(self, chunks: Dict[str, List[DocumentChunk]]) -> List[str]:
+    async def _upsert(self, chunks: Dict[str, List[DocumentChunk]], namespace: str) -> List[str]:
         """
         Takes in a list of list of document chunks and inserts them into the database.
         Return a list of document ids.
@@ -50,7 +36,7 @@ class DataStore(ABC):
 
         raise NotImplementedError
 
-    async def query(self, queries: List[Query]) -> List[QueryResult]:
+    async def query(self, queries: List[Query], namespace: str) -> List[QueryResult]:
         """
         Takes in a list of queries and filters and returns a list of query results with matching document chunks and scores.
         """
@@ -62,10 +48,10 @@ class DataStore(ABC):
             QueryWithEmbedding(**query.dict(), embedding=embedding)
             for query, embedding in zip(queries, query_embeddings)
         ]
-        return await self._query(queries_with_embeddings)
+        return await self._query(queries_with_embeddings, namespace)
 
     @abstractmethod
-    async def _query(self, queries: List[QueryWithEmbedding]) -> List[QueryResult]:
+    async def _query(self, queries: List[QueryWithEmbedding], namespace: str) -> List[QueryResult]:
         """
         Takes in a list of queries with embeddings and filters and returns a list of query results with matching document chunks and scores.
         """
@@ -74,6 +60,7 @@ class DataStore(ABC):
     @abstractmethod
     async def delete(
         self,
+        namespace: str,
         ids: Optional[List[str]] = None,
         filter: Optional[DocumentMetadataFilter] = None,
         delete_all: Optional[bool] = None,

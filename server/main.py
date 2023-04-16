@@ -78,7 +78,7 @@ async def upsert(
     request: UpsertRequest = Body(...),
 ):
     try:
-        ids = await datastore.upsert(request.documents)
+        ids = await datastore.upsert(request.documents, request.namespace)
         return UpsertResponse(ids=ids)
     except Exception as e:
         print("Error:", e)
@@ -94,7 +94,7 @@ async def query_main(
 ):
     try:
         results = await datastore.query(
-            request.queries,
+            request.queries, request.namespace
         )
         return QueryResponse(results=results)
     except Exception as e:
@@ -113,7 +113,7 @@ async def query(
 ):
     try:
         results = await datastore.query(
-            request.queries,
+            request.queries, request.namespace
         )
         return QueryResponse(results=results)
     except Exception as e:
@@ -138,6 +138,7 @@ async def delete(
             ids=request.ids,
             filter=request.filter,
             delete_all=request.delete_all,
+            namespace=request.namespace
         )
         return DeleteResponse(success=success)
     except Exception as e:
